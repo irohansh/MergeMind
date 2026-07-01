@@ -1,0 +1,21 @@
+{
+  "batch_id": "style-1",
+  "files": [
+    {
+      "filename": "src/controllers/auth.ts",
+      "diff": "@@ -30,6 +30,18 @@\n+async function createSession(userId: string, role: string, expiresIn: number, rememberMe: boolean, ipAddress: string, userAgent: string) {\n+  const token = generateToken(userId);\n+  const session = {\n+    userId,\n+    role,\n+    token,\n+    expiresIn,\n+    rememberMe,\n+    ip: ipAddress,\n+    ua: userAgent,\n+  };\n+  return db.sessions.insert(session);\n+}"
+    },
+    {
+      "filename": "src/utils/format.ts",
+      "diff": "@@ -1,4 +1,12 @@\n+// increment counter\n+let cnt = 0;\n+\n+export function fmtDt(d: any): string {\n+  cnt++;\n+  return d.toISOString();\n+}\n+\n+// TODO: add more formatters"
+    }
+  ],
+  "focus_areas": [
+    "Three new functions use implicit any return types",
+    "formatCurrency added without JSDoc despite existing functions all having JSDoc"
+  ],
+  "pr_context": {
+    "title": "Add session management and date formatting utilities",
+    "summary": "Introduces createSession helper and date formatting utilities."
+  }
+}

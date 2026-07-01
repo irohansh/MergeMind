@@ -5,6 +5,7 @@ import { LOGIC_SYSTEM_PROMPT } from '../prompts/logic.js';
 import { STYLE_SYSTEM_PROMPT } from '../prompts/style.js';
 import { SYNTHESISER_SYSTEM_PROMPT } from '../prompts/synthesiser.js';
 import type { AgentLog } from '../types/agents.js';
+import { insertAgentLog } from '../db/client.js';
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
@@ -69,7 +70,7 @@ export async function callAgent<T>(
     timestamp: new Date().toISOString(),
   };
   console.log('[agent-log]', JSON.stringify(log));
-  // TODO: insert log into Postgres agent_logs table
+  await insertAgentLog(log);
 
   if (isSynthesiser) {
     return raw as unknown as T;

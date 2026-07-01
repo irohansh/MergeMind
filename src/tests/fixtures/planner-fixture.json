@@ -1,0 +1,12 @@
+{
+  "diff": "diff --git a/src/api/users.ts b/src/api/users.ts\nindex 1234567..abcdefg 100644\n--- a/src/api/users.ts\n+++ b/src/api/users.ts\n@@ -30,6 +30,15 @@ router.get('/users', requireAuth, async (req, res) => {\n   res.json(users);\n });\n \n+router.get('/admin/export', async (req, res) => {\n+  const search = req.query.search as string;\n+  const result = await db.query(`SELECT * FROM users WHERE name = '${search}'`);\n+  res.json(result.rows);\n+});\ndiff --git a/src/services/payment.ts b/src/services/payment.ts\nindex abc1234..def5678 100644\n--- a/src/services/payment.ts\n+++ b/src/services/payment.ts\n@@ -85,7 +85,16 @@ export async function processPayment(amount: number) {\n   const paymentMethods = await getPaymentMethods();\n-  return stripe.charge(paymentMethods[0], amount);\n+  paymentMethods.forEach(async (method) => {\n+    await chargeCard(method, amount);\n+  });\n }",
+  "context": {
+    "title": "Add admin export and parallel payment processing",
+    "description": "Adds a new admin export endpoint and updates payment processing to support multiple payment methods.",
+    "author": "dev-user",
+    "files_changed": 2,
+    "additions": 13,
+    "deletions": 1,
+    "base_branch": "main"
+  }
+}

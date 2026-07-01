@@ -5,16 +5,30 @@
   "type": "module",
   "main": "dist/orchestrator.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "npx tsx src/index.ts",
+    "test:agent": "npx tsx src/tests/testAgent.ts",
+    "test:planner": "npx tsx src/tests/testAgent.ts planner",
+    "test:security": "npx tsx src/tests/testAgent.ts security",
+    "test:logic": "npx tsx src/tests/testAgent.ts logic",
+    "test:style": "npx tsx src/tests/testAgent.ts style",
+    "test:synthesiser": "npx tsx src/tests/testAgent.ts synthesiser",
+    "typecheck": "npx tsc --noEmit"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.106.0"
+    "@anthropic-ai/sdk": "^0.106.0",
+    "dotenv": "^17.4.2",
+    "pg": "^8.22.0"
   },
   "devDependencies": {
+    "@modelcontextprotocol/server-filesystem": "^2026.1.14",
+    "@modelcontextprotocol/server-github": "^2025.4.8",
+    "@modelcontextprotocol/server-postgres": "^0.6.2",
+    "@types/dotenv": "^6.1.1",
     "@types/node": "^26.0.1",
+    "@types/pg": "^8.20.0",
     "tsx": "^4.22.4",
     "typescript": "^6.0.3"
   }

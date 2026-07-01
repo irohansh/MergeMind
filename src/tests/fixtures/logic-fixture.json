@@ -1,0 +1,21 @@
+{
+  "batch_id": "logic-1",
+  "files": [
+    {
+      "filename": "src/services/payment.ts",
+      "diff": "@@ -85,7 +85,16 @@ export async function processPayment(amount: number) {\n   const paymentMethods = await getPaymentMethods();\n-  return stripe.charge(paymentMethods[0], amount);\n+  paymentMethods.forEach(async (method) => {\n+    await chargeCard(method, amount);\n+  });\n+\n+  let attempts = 0;\n+  while (!paymentConfirmed) {\n+    paymentConfirmed = await checkPaymentStatus();\n+    attempts++;\n+  }\n }"
+    },
+    {
+      "filename": "src/utils/currency.ts",
+      "diff": "@@ -1,4 +1,8 @@\n+export function formatCurrency(amount: number, currency: string): string {\n+  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount);\n+}"
+    }
+  ],
+  "focus_areas": [
+    "The new retry loop at line 89 has no maximum iteration guard",
+    "Promise.all on line 102 will reject entirely if one payment method fails"
+  ],
+  "pr_context": {
+    "title": "Update payment processing to support multiple methods",
+    "summary": "Refactors payment processing to charge multiple payment methods and adds a polling loop to confirm payment."
+  }
+}

@@ -1,0 +1,170 @@
+{
+  "pr_context": {
+    "title": "Add admin export endpoint and payment multi-method support",
+    "description": "Adds a new /admin/export route, updates payment processing to charge multiple payment methods, and introduces session management helpers.",
+    "author": "dev-user",
+    "files_changed": 4,
+    "additions": 42,
+    "deletions": 3,
+    "base_branch": "main"
+  },
+  "planner_summary": {
+    "pr_summary": "This PR adds an unauthenticated admin export endpoint, refactors payment processing to use a forEach loop over multiple methods, and adds session/format utilities.",
+    "overall_risk": "CRITICAL",
+    "total_files_changed": 4
+  },
+  "security_results": [
+    {
+      "batch_id": "sec-1",
+      "agent": "security",
+      "findings": [
+        {
+          "id": "sec-1-0",
+          "file": "src/api/users.ts",
+          "line": 33,
+          "severity": "CRITICAL",
+          "category": "SQL Injection",
+          "title": "Raw user input concatenated into SQL query",
+          "description": "The search parameter is interpolated directly into a raw SQL string. An attacker can inject arbitrary SQL including UNION SELECT to exfiltrate data.",
+          "vulnerable_code": "const result = await db.query(`SELECT * FROM users WHERE name = '${search}'`);",
+          "recommendation": "Use parameterised queries: await db.query('SELECT * FROM users WHERE name = $1', [search]);",
+          "cwe_id": "CWE-89",
+          "owasp": "A03:2021 Injection"
+        },
+        {
+          "id": "sec-1-1",
+          "file": "src/api/users.ts",
+          "line": 31,
+          "severity": "CRITICAL",
+          "category": "Broken Access Control",
+          "title": "Admin export route missing authentication middleware",
+          "description": "The /admin/export route is registered without requireAuth middleware, making it publicly accessible to any unauthenticated caller.",
+          "vulnerable_code": "router.get('/admin/export', async (req, res) => {",
+          "recommendation": "Add requireAuth (and an admin role check) before the handler: router.get('/admin/export', requireAuth, requireRole('admin'), async (req, res) => {",
+          "cwe_id": "CWE-862",
+          "owasp": "A01:2021 Broken Access Control"
+        },
+        {
+          "id": "sec-1-2",
+          "file": "src/middleware/auth.ts",
+          "line": 3,
+          "severity": "HIGH",
+          "category": "Cryptographic Failure",
+          "title": "JWT signed with hardcoded fallback secret",
+          "description": "When JWT_SECRET is not set the token is signed with the literal string 'fallback-secret', making tokens forgeable in any environment where the env var is absent.",
+          "vulnerable_code": "const secret = process.env.JWT_SECRET ?? 'fallback-secret';",
+          "recommendation": "Throw a startup error if JWT_SECRET is undefined: if (!process.env.JWT_SECRET) throw new Error('JWT_SECRET must be set');",
+          "cwe_id": "CWE-321",
+          "owasp": "A02:2021 Cryptographic Failures"
+        }
+      ],
+      "planner_focus_validation": [
+        {
+          "focus_area": "Missing auth middleware on the new /admin/export route added at line 34 of users.ts",
+          "confirmed": true,
+          "finding_id": "sec-1-1"
+        },
+        {
+          "focus_area": "JWT secret appears to be read from process.env without a fallback check in auth.ts",
+          "confirmed": true,
+          "finding_id": "sec-1-2"
+        }
+      ],
+      "files_with_no_issues": [],
+      "review_notes": "Two critical issues: SQL injection and missing auth. Both must be resolved before merge."
+    }
+  ],
+  "logic_results": [
+    {
+      "batch_id": "logic-1",
+      "agent": "logic",
+      "findings": [
+        {
+          "id": "logic-1-0",
+          "file": "src/services/payment.ts",
+          "line": 88,
+          "severity": "HIGH",
+          "category": "Unhandled Promise",
+          "title": "forEach does not await async callbacks — rejections silently swallowed",
+          "description": "paymentMethods.forEach(async ...) does not await each chargeCard call. If chargeCard rejects (e.g. card declined), the rejection becomes an unhandled promise rejection and crashes the process in Node 15+.",
+          "buggy_code": "paymentMethods.forEach(async (method) => {\n  await chargeCard(method, amount);\n});",
+          "fix": "for (const method of paymentMethods) {\n  await chargeCard(method, amount);\n}",
+          "test_case": "Mock chargeCard to reject with PaymentError for the second element. Expected: processPayment rejects. Actual: resolves silently."
+        },
+        {
+          "id": "logic-1-1",
+          "file": "src/services/payment.ts",
+          "line": 93,
+          "severity": "HIGH",
+          "category": "Infinite Loop",
+          "title": "while loop has no iteration guard — hangs indefinitely if payment never confirms",
+          "description": "The while (!paymentConfirmed) loop has no maximum attempt count or timeout. If checkPaymentStatus() always returns false (e.g. provider outage), the process hangs forever.",
+          "buggy_code": "while (!paymentConfirmed) {\n  paymentConfirmed = await checkPaymentStatus();\n  attempts++;\n}",
+          "fix": "const MAX_ATTEMPTS = 10;\nwhile (!paymentConfirmed && attempts < MAX_ATTEMPTS) {\n  paymentConfirmed = await checkPaymentStatus();\n  attempts++;\n}\nif (!paymentConfirmed) throw new Error('Payment confirmation timed out');",
+          "test_case": "Mock checkPaymentStatus to always return false. Expected: throws after MAX_ATTEMPTS. Actual: hangs indefinitely."
+        }
+      ],
+      "planner_focus_validation": [
+        {
+          "focus_area": "The new retry loop at line 89 has no maximum iteration guard",
+          "confirmed": true,
+          "finding_id": "logic-1-1"
+        },
+        {
+          "focus_area": "Promise.all on line 102 will reject entirely if one payment method fails",
+          "confirmed": false,
+          "note": "No Promise.all present in this diff. The planner likely flagged a concern that does not exist in the current code."
+        }
+      ],
+      "files_with_no_issues": ["src/utils/currency.ts"]
+    }
+  ],
+  "style_results": [
+    {
+      "batch_id": "style-1",
+      "agent": "style",
+      "findings": [
+        {
+          "id": "style-1-0",
+          "file": "src/controllers/auth.ts",
+          "line": 31,
+          "severity": "MODERATE",
+          "category": "Function Design",
+          "title": "createSession has 6 positional parameters — use an options object",
+          "current_code": "async function createSession(userId: string, role: string, expiresIn: number, rememberMe: boolean, ipAddress: string, userAgent: string)",
+          "suggestion": "interface CreateSessionOptions { userId: string; role: string; expiresIn: number; rememberMe: boolean; ipAddress: string; userAgent: string; }\nasync function createSession(options: CreateSessionOptions): Promise<Session>",
+          "rationale": "Positional parameters force callers to remember order. An options object makes call sites self-documenting and allows safe addition of future fields."
+        },
+        {
+          "id": "style-1-1",
+          "file": "src/utils/format.ts",
+          "line": 4,
+          "severity": "MODERATE",
+          "category": "TypeScript Strictness",
+          "title": "fmtDt parameter typed as any — use Date",
+          "current_code": "export function fmtDt(d: any): string {",
+          "suggestion": "export function formatDate(d: Date): string {",
+          "rationale": "any bypasses the type checker. The function only calls .toISOString() which exists on Date — use Date as the parameter type and rename for clarity."
+        },
+        {
+          "id": "style-1-2",
+          "file": "src/utils/format.ts",
+          "line": 1,
+          "severity": "MINOR",
+          "category": "Comment Quality",
+          "title": "Comment '// increment counter' restates the code — remove it",
+          "current_code": "// increment counter\nlet cnt = 0;",
+          "suggestion": "let cnt = 0;",
+          "rationale": "The comment adds no information beyond what the code already says."
+        }
+      ],
+      "praise": [
+        {
+          "file": "src/utils/currency.ts",
+          "note": "formatCurrency correctly uses Intl.NumberFormat with an explicit locale and currency parameter, making it internationalisation-safe rather than hardcoding dollar signs."
+        }
+      ],
+      "files_with_no_issues": []
+    }
+  ]
+}

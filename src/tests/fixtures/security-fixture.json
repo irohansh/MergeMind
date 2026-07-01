@@ -1,0 +1,21 @@
+{
+  "batch_id": "sec-1",
+  "files": [
+    {
+      "filename": "src/api/users.ts",
+      "diff": "@@ -30,6 +30,15 @@ router.get('/users', requireAuth, async (req, res) => {\n   res.json(users);\n });\n \n+router.get('/admin/export', async (req, res) => {\n+  const search = req.query.search as string;\n+  const result = await db.query(`SELECT * FROM users WHERE name = '${search}'`);\n+  res.json(result.rows);\n+});"
+    },
+    {
+      "filename": "src/middleware/auth.ts",
+      "diff": "@@ -1,8 +1,12 @@\n import jwt from 'jsonwebtoken';\n \n+export function generateToken(userId: string): string {\n+  const secret = process.env.JWT_SECRET ?? 'fallback-secret';\n+  return jwt.sign({ userId }, secret, { expiresIn: '30d' });\n+}"
+    }
+  ],
+  "focus_areas": [
+    "Missing auth middleware on the new /admin/export route added at line 34 of users.ts",
+    "JWT secret appears to be read from process.env without a fallback check in auth.ts"
+  ],
+  "pr_context": {
+    "title": "Add admin export endpoint",
+    "summary": "Adds a new /admin/export route and a JWT token generation helper."
+  }
+}
