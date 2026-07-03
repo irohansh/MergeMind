@@ -12,7 +12,8 @@
     "test:logic": "npx tsx src/tests/testAgent.ts logic",
     "test:style": "npx tsx src/tests/testAgent.ts style",
     "test:synthesiser": "npx tsx src/tests/testAgent.ts synthesiser",
-    "typecheck": "npx tsc --noEmit"
+    "typecheck": "npx tsc --noEmit",
+    "show-logs": "npx tsx src/scripts/showLogs.ts"
   },
   "keywords": [],
   "author": "",

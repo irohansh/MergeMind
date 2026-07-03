@@ -136,6 +136,55 @@ These commands load the corresponding fixture from `src/tests/fixtures/`, call t
 
 ---
 
+## Proof of Execution
+
+The following screenshots capture a live end-to-end run of MergeMind against a real pull request.
+
+### 1. Agent log table — pipeline run recorded in Postgres
+
+All 10 agent calls from a single PR review are persisted to the `agent_logs` table. Each row records the role, model, token counts, and wall-clock latency.
+
+![Terminal showing agent_logs table with 10 rows](./docs/proof/01-terminal-pipeline-run.png)
+
+---
+
+### 2. Synthesised PR review — terminal output
+
+The Synthesiser agent's final output, printed to stdout. This comment is ready to post directly to GitHub. The review correctly identified two critical security vulnerabilities in the sample PR: a missing auth middleware on the `/admin/export` route and a raw SQL injection in `src/api/users.ts`.
+
+![Terminal showing the synthesised PR review comment with CRITICAL status](./docs/proof/02-terminal-pr-review.png)
+
+---
+
+### 3. Anthropic Console — API call logs
+
+All Anthropic API requests made during the pipeline run are visible in the Anthropic Console. The log confirms both `claude-sonnet-4-6` (Security, Synthesiser) and `claude-haiku-4-5` (Planner, Logic, Style) were called in the correct routing order.
+
+![Anthropic Console showing API logs for the pipeline run](./docs/proof/03-anthropic-console-logs.png)
+
+---
+
+### 4. NeonDB — per-minute cost breakdown
+
+A SQL query over `agent_logs` computes the estimated cost of each pipeline run, grouped by minute. This query is the basis for operational cost monitoring.
+
+![NeonDB SQL Editor showing per-minute agent cost breakdown](./docs/proof/04-neondb-run-history.png)
+
+---
+
+### 5. NeonDB — model usage breakdown
+
+A breakdown of total token consumption and average latency per model across the run. Haiku handled 6 calls at 6 241 ms average latency. Sonnet handled 6 calls at 22 995 ms — consistent with its deeper reasoning workload.
+
+| Model | Calls | Total Input Tokens | Total Output Tokens | Avg Latency (ms) |
+|---|---|---|---|---|
+| claude-haiku-4-5 | 6 | 9 088 | 4 195 | 6 241 |
+| claude-sonnet-4-6 | 6 | 16 917 | 7 264 | 22 995 |
+
+![NeonDB SQL Editor showing model-level token and latency breakdown](./docs/proof/05-neondb-model-breakdown.png)
+
+---
+
 ## Slash Commands
 
 The following Claude Code slash commands are available under `.claude/commands/`:

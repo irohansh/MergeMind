@@ -7,6 +7,33 @@ import { SYNTHESISER_SYSTEM_PROMPT } from '../prompts/synthesiser.js';
 import type { AgentLog } from '../types/agents.js';
 import { insertAgentLog } from '../db/client.js';
 
+// Pricing per million tokens (MTok) as of 2026-07
+const PRICE_PER_MTOK: Record<string, { input: number; output: number }> = {
+  'claude-haiku-4-5': { input: 0.80, output: 4.00 },
+  'claude-sonnet-4-6': { input: 3.00, output: 15.00 },
+};
+
+const sessionLogs: AgentLog[] = [];
+
+export function getSessionMetrics(): {
+  logs: AgentLog[];
+  totals: { input_tokens: number; output_tokens: number; duration_ms: number; cost_usd: number };
+} {
+  let totalInput = 0, totalOutput = 0, totalDuration = 0, totalCost = 0;
+  for (const log of sessionLogs) {
+    totalInput += log.input_tokens;
+    totalOutput += log.output_tokens;
+    totalDuration += log.duration_ms;
+    const pricing = PRICE_PER_MTOK[log.model] ?? { input: 3.00, output: 15.00 };
+    totalCost += (log.input_tokens / 1_000_000) * pricing.input
+              + (log.output_tokens / 1_000_000) * pricing.output;
+  }
+  return {
+    logs: sessionLogs,
+    totals: { input_tokens: totalInput, output_tokens: totalOutput, duration_ms: totalDuration, cost_usd: totalCost },
+  };
+}
+
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
 
 type AgentRole = 'planner' | 'security' | 'logic' | 'style' | 'synthesiser';
@@ -69,8 +96,11 @@ export async function callAgent<T>(
     duration_ms: Date.now() - start,
     timestamp: new Date().toISOString(),
   };
+  sessionLogs.push(log);
   console.log('[agent-log]', JSON.stringify(log));
-  await insertAgentLog(log);
+  await insertAgentLog(log).catch(err =>
+    console.warn(`[db-warn] Failed to insert log for ${role}: ${(err as Error).message}`)
+  );
 
   if (isSynthesiser) {
     return raw as unknown as T;

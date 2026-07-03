@@ -134,3 +134,8 @@ docker-compose.override.yml
 *.tar.gz
 *.zip
 .node_repl_history
+
+# ============================================================
+# Project-specific generated files
+# ============================================================
+architecture.md
