@@ -251,35 +251,6 @@ The Planner groups files into batches of at most 8 files each. This keeps indivi
 
 ---
 
-## Repository Hygiene
-
-The `.gitignore` follows Node.js and security industry standards. Key rules:
-
-**Never committed**
-- `.env` and all environment variant files (`.env.local`, `.env.production`, etc.) — use `.env.example` as the template
-- Private key files (`*.pem`, `*.key`, `*.p12`, `*.pfx`) and any `secrets/` or `credentials/` directories
-- `node_modules/`, `dist/`, and all build artefacts
-- `CLAUDE.md` and `.claude/` — Claude Code project instructions and session state
-- Log files, coverage reports, and test result outputs
-- OS files (`.DS_Store`, `Thumbs.db`) and editor swap files
-
-**Committed intentionally**
-- `package-lock.json` — locks the exact dependency tree for reproducible installs
-- `.env.example` — documents required variables without exposing values
-- `.vscode/extensions.json` — recommended extensions can be shared; all other VS Code settings are ignored
-
-**If you accidentally staged a secret**, remove it before pushing:
-
-```bash
-git rm --cached .env
-echo ".env" >> .gitignore
-git commit -m "remove accidentally staged env file"
-```
-
-For historical exposure, rotate the credential immediately — `git history` retains removed files.
-
----
-
 ## License
 
 ISC
