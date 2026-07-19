@@ -1,141 +1,60 @@
-# ============================================================
 # Dependencies
-# ============================================================
 node_modules/
-.pnp
-.pnp.js
-.yarn/cache
-.yarn/unplugged
-.yarn/build-state.yml
-.yarn/install-state.gz
 
-# ============================================================
 # Build output
-# ============================================================
 dist/
 build/
-out/
+*.tsbuildinfo
 *.js.map
 *.d.ts.map
 
-# ============================================================
-# TypeScript
-# ============================================================
-*.tsbuildinfo
-
-# ============================================================
-# Environment and secrets — never commit these
-# ============================================================
+# Environment & secrets
 .env
-.env.local
-.env.development
-.env.test
-.env.production
-.env.staging
-.env.*.local
+.env.*
+!.env.example
 *.pem
 *.key
 *.p12
-*.pfx
 secrets/
-credentials/
 
-# ============================================================
-# Logs
-# ============================================================
+# Logs & runtime
 logs/
 *.log
 npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-# ============================================================
-# Runtime data
-# ============================================================
 pids/
 *.pid
-*.seed
-*.pid.lock
 
-# ============================================================
-# Test and coverage output
-# ============================================================
+# Test & coverage
 coverage/
 .nyc_output/
 *.lcov
 test-results/
-junit.xml
 
-# ============================================================
-# OS-generated files
-# ============================================================
+# Caches & temp
+.cache/
+.eslintcache
+.npm/
+tmp/
+temp/
+
+# OS & editor
 .DS_Store
-.DS_Store?
-._*
-.Spotlight-V500
-.Trashes
-ehthumbs.db
 Thumbs.db
 desktop.ini
-
-# ============================================================
-# IDE and editor artefacts
-# ============================================================
 .vscode/
 !.vscode/extensions.json
 .idea/
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
 *.swp
 *.swo
 *~
-.project
-.classpath
-.settings/
 
-# ============================================================
-# Package manager locks — keep package-lock.json, ignore others
-# ============================================================
+# Non-npm lock files (this project uses npm + package-lock.json)
 yarn.lock
 pnpm-lock.yaml
-.pnpm-store/
 
-# ============================================================
-# Claude Code — ignore all Claude-specific files
-# ============================================================
+# Private notes — .claude/ (MCP wiring + slash commands) is committed
 CLAUDE.md
-.claude/
-
-# ============================================================
-# Temporary and cache files
-# ============================================================
-tmp/
-temp/
-.cache/
-.parcel-cache/
-.eslintcache
-.stylelintcache
-.prettiercache
-
-# ============================================================
-# Docker
-# ============================================================
-docker-compose.override.yml
-
-# ============================================================
-# Miscellaneous
-# ============================================================
-*.tgz
-*.tar.gz
-*.zip
-.node_repl_history
-
-# ============================================================
-# Project-specific generated files
-# ============================================================
+.claude/settings.local.json
+docs/DEEP_DIVE.md
+docs/MergeMind_Interview_Prep.md
 architecture.md

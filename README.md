@@ -26,7 +26,7 @@ The pipeline runs in three stages:
 | Style | claude-haiku-4-5 | TypeScript strictness, naming, dead code, test quality, maintainability |
 | Synthesiser | claude-sonnet-4-6 | Merges all findings into a single, prioritised GitHub review comment |
 
-Sonnet is used for Security and Synthesiser (deep reasoning). Haiku is used for Planner, Logic, and Style to reduce cost by approximately 60%.
+Sonnet is used for Security and Synthesiser (deep reasoning). Haiku is used for Planner, Logic, and Style, cutting per-call inference cost by ~73% on those roles (Haiku is roughly 3.75× cheaper per token than Sonnet). Measured whole-pipeline savings depend on how token volume splits between models — on the logged run below it was ≈ 25–30%.
 
 ---
 
@@ -86,9 +86,9 @@ cp .env.example .env
 ANTHROPIC_API_KEY=your_anthropic_api_key_here
 GITHUB_TOKEN=your_github_token_here
 DATABASE_URL=your_postgres_database_url_here
-UPSTASH_REDIS_URL=your_upstash_redis_url_here
-UPSTASH_REDIS_TOKEN=your_upstash_redis_token_here
 ```
+
+`GITHUB_TOKEN` is only needed for the Claude Code `/review-pr` workflow — `npm start` works without it.
 
 **3. Initialise the database**
 
@@ -99,6 +99,8 @@ psql $DATABASE_URL -f src/db/schema.sql
 ```
 
 This creates the `agent_logs` table used to record every agent call with token counts and latency.
+
+The database is optional for the demo: the log insert is best-effort (catch-wrapped), so `npm start` still completes without a reachable Postgres — you just lose observability.
 
 ---
 
@@ -142,9 +144,9 @@ The following screenshots capture a live end-to-end run of MergeMind against a r
 
 ### 1. Agent log table — pipeline run recorded in Postgres
 
-All 10 agent calls from a single PR review are persisted to the `agent_logs` table. Each row records the role, model, token counts, and wall-clock latency.
+Every agent call from a PR review is persisted to the `agent_logs` table. Each row records the role, model, token counts, and wall-clock latency. A single clean run is 1 Planner call + N specialist batch calls + 1 Synthesiser call; the query window shown spans two runs.
 
-![Terminal showing agent_logs table with 10 rows](./docs/proof/01-terminal-pipeline-run.png)
+![Terminal showing agent_logs table rows](./docs/proof/01-terminal-pipeline-run.png)
 
 ---
 
@@ -174,7 +176,7 @@ A SQL query over `agent_logs` computes the estimated cost of each pipeline run, 
 
 ### 5. NeonDB — model usage breakdown
 
-A breakdown of total token consumption and average latency per model across the run. Haiku handled 6 calls at 6 241 ms average latency. Sonnet handled 6 calls at 22 995 ms — consistent with its deeper reasoning workload.
+A breakdown of total token consumption and average latency per model, aggregated across two pipeline runs in the query window. Haiku handled 6 calls at 6 241 ms average latency. Sonnet handled 6 calls at 22 995 ms — consistent with its deeper reasoning workload. These are single-sample values from one session, not a benchmark — no p50/p95.
 
 | Model | Calls | Total Input Tokens | Total Output Tokens | Avg Latency (ms) |
 |---|---|---|---|---|
@@ -187,7 +189,7 @@ A breakdown of total token consumption and average latency per model across the 
 
 ## Slash Commands
 
-The following Claude Code slash commands are available under `.claude/commands/`:
+The following Claude Code slash commands are available under `.claude/commands/`, which is committed to the repo along with the MCP server config (`.claude/settings.json`) — a fresh clone gets the full Claude Code workflow. The config references `${GITHUB_TOKEN}` and `${DATABASE_URL}` from your environment; no secrets are stored in it.
 
 | Command | Description |
 |---|---|
@@ -223,21 +225,23 @@ Every agent call is logged to the `agent_logs` Postgres table:
 | duration_ms | INTEGER | Wall-clock latency in milliseconds |
 | timestamp | TIMESTAMPTZ | UTC time of the call |
 
+Every call gets exactly one row — the log write lives inside `callAgent.ts`, the only place the SDK is imported, so no call path can bypass it. Known gap: when the JSON-parse retry fires, the retry request's token usage is not recorded, so cost metrics undercount on retried calls. The insert itself is best-effort — a DB outage degrades to console warnings without failing the review.
+
 ---
 
-## MCP Servers
+## Claude Code Integration (MCP)
 
-The project is wired to three MCP servers for GitHub integration:
+MergeMind has two interfaces. `npm start` runs the self-contained Node pipeline — it does **not** call MCP at runtime. The second interface is Claude Code: the slash commands above use three MCP servers as the agent-tooling layer around the pipeline:
 
-- `@modelcontextprotocol/server-github` — read PR diffs, post inline comments, fetch file history
+- `@modelcontextprotocol/server-github` — fetch PR diffs and metadata, post the review comment back to GitHub
 - `@modelcontextprotocol/server-filesystem` — read and write local prompt files and review logs
-- `@modelcontextprotocol/server-postgres` — query defect history per file path
+- `@modelcontextprotocol/server-postgres` — query the `agent_logs` table (tokens, latency, cost)
 
 ---
 
 ## Batching and Rate Limits
 
-The Planner groups files into batches of at most 8 files each. This keeps individual agent calls within Tier 1 token-per-minute limits (30k tokens/min on Sonnet). Lock files, minified assets, and auto-generated migration files are excluded from all batches.
+The Planner groups files into batches of at most 8 files each. This keeps individual agent calls within Tier 1 token-per-minute limits (30k tokens/min on Sonnet) — per call. Aggregate concurrency limiting is a known TODO: all batches currently fire in parallel with no cap or 429 backoff, so a very large PR could still exceed the TPM limit. Lock files, minified assets, and auto-generated migration files are excluded from all batches.
 
 ---
 
@@ -246,7 +250,7 @@ The Planner groups files into batches of at most 8 files each. This keeps indivi
 - **Runtime:** Node.js 20+ with TypeScript (ESM, NodeNext module resolution)
 - **AI:** Anthropic SDK (`@anthropic-ai/sdk`)
 - **Database:** PostgreSQL via `pg`
-- **MCP:** `@modelcontextprotocol/server-github`, `server-filesystem`, `server-postgres`
+- **MCP (Claude Code workflow only):** `@modelcontextprotocol/server-github`, `server-filesystem`, `server-postgres`
 - **Execution:** `tsx` for direct TypeScript execution without a build step
 
 ---
