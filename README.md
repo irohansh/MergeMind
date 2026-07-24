@@ -59,8 +59,9 @@ src/
 ## Prerequisites
 
 - Node.js 20+
-- A running PostgreSQL instance
 - An Anthropic API key with access to claude-haiku-4-5 and claude-sonnet-4-6
+- A PostgreSQL instance — **optional** for the demo. Agent-log writes are best-effort, so `npm start` still completes without a database (logging degrades to console warnings); a reachable Postgres is only required for observability.
+- `GITHUB_TOKEN` is **only** needed for the Claude Code `/review-pr` workflow — `npm start` does not use it.
 
 ---
 
@@ -144,7 +145,7 @@ The following screenshots capture a live end-to-end run of MergeMind against a r
 
 ### 1. Agent log table — pipeline run recorded in Postgres
 
-Every agent call from a PR review is persisted to the `agent_logs` table. Each row records the role, model, token counts, and wall-clock latency. A single clean run is 1 Planner call + N specialist batch calls + 1 Synthesiser call; the query window shown spans two runs.
+Every agent call from a PR review is persisted to the `agent_logs` table. Each row records the role, model, token counts, and wall-clock latency. The total number of calls **varies per run** — it is 1 Planner + N specialist batch calls (N depends on how the Planner batches the diff) + 1 Synthesiser, so counts differ between PRs and any parse-retry adds cost to an existing row rather than a new one. Every row now carries a `run_id`, so a single run can always be isolated with `WHERE run_id = '…'` rather than inferred from a time window that may span several runs.
 
 ![Terminal showing agent_logs table rows](./docs/proof/01-terminal-pipeline-run.png)
 
@@ -183,6 +184,8 @@ A breakdown of total token consumption and average latency per model, aggregated
 | claude-haiku-4-5 | 6 | 9 088 | 4 195 | 6 241 |
 | claude-sonnet-4-6 | 6 | 16 917 | 7 264 | 22 995 |
 
+*(figures from one representative run)*
+
 ![NeonDB SQL Editor showing model-level token and latency breakdown](./docs/proof/05-neondb-model-breakdown.png)
 
 ---
@@ -217,6 +220,7 @@ Every agent call is logged to the `agent_logs` Postgres table:
 
 | Column | Type | Description |
 |---|---|---|
+| run_id | TEXT | UUID identifying the pipeline run; lets rows from one run be isolated |
 | role | TEXT | Agent name (planner, security, logic, style, synthesiser) |
 | model | TEXT | Model ID used for the call |
 | batch_id | TEXT | Batch identifier assigned by the Planner |
@@ -225,7 +229,7 @@ Every agent call is logged to the `agent_logs` Postgres table:
 | duration_ms | INTEGER | Wall-clock latency in milliseconds |
 | timestamp | TIMESTAMPTZ | UTC time of the call |
 
-Every call gets exactly one row — the log write lives inside `callAgent.ts`, the only place the SDK is imported, so no call path can bypass it. Known gap: when the JSON-parse retry fires, the retry request's token usage is not recorded, so cost metrics undercount on retried calls. The insert itself is best-effort — a DB outage degrades to console warnings without failing the review.
+Every call gets exactly one row — the log write lives inside `callAgent.ts`, the only place the SDK is imported, so no call path can bypass it. When the JSON-parse retry fires, the retry request's token usage and latency are folded into that same row, so cost metrics stay accurate on retried calls. The insert itself is best-effort — a DB outage degrades to console warnings without failing the review.
 
 ---
 
@@ -241,7 +245,7 @@ MergeMind has two interfaces. `npm start` runs the self-contained Node pipeline 
 
 ## Batching and Rate Limits
 
-The Planner groups files into batches of at most 8 files each. This keeps individual agent calls within Tier 1 token-per-minute limits (30k tokens/min on Sonnet) — per call. Aggregate concurrency limiting is a known TODO: all batches currently fire in parallel with no cap or 429 backoff, so a very large PR could still exceed the TPM limit. Lock files, minified assets, and auto-generated migration files are excluded from all batches.
+The Planner groups files into batches of **at most 8 files per call**, keeping each individual agent call within Tier 1 token-per-minute limits (30k tokens/min on Sonnet). On top of the per-call cap, specialist batches now run under an **aggregate concurrency cap of 2** (via `p-limit`) shared across the Security, Logic, and Style agents, so even a very large PR cannot fan out unbounded parallel calls. Transport-level failures (HTTP 429 and 5xx) are retried with **exponential backoff and full jitter** (3 attempts), separately from the JSON-parse retry. Lock files, minified assets, and auto-generated migration files are excluded from all batches.
 
 ---
 

@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto';
 import Anthropic from '@anthropic-ai/sdk';
 import { PLANNER_SYSTEM_PROMPT } from '../prompts/planner.js';
 import { SECURITY_SYSTEM_PROMPT } from '../prompts/security.js';
@@ -55,10 +56,46 @@ const MODEL_MAP: Record<AgentRole, string> = {
   synthesiser: 'claude-sonnet-4-6',
 };
 
+// Transport-level retry: exponential backoff with full jitter on 429 / 5xx.
+// This is deliberately separate from the JSON-parse retry in callAgent, which
+// handles well-formed responses that fail to parse rather than transport faults.
+const MAX_TRANSPORT_ATTEMPTS = 3;
+const BACKOFF_BASE_MS = 500;
+
+function isRetryableStatus(status: number | undefined): boolean {
+  return status === 429 || (status !== undefined && status >= 500 && status < 600);
+}
+
+async function callAnthropic(
+  params: Anthropic.Messages.MessageCreateParamsNonStreaming
+): Promise<Anthropic.Messages.Message> {
+  let lastErr: unknown;
+  for (let attempt = 1; attempt <= MAX_TRANSPORT_ATTEMPTS; attempt++) {
+    try {
+      return await anthropic.messages.create(params);
+    } catch (err) {
+      lastErr = err;
+      const status = (err as { status?: number }).status;
+      if (!isRetryableStatus(status) || attempt === MAX_TRANSPORT_ATTEMPTS) {
+        throw err;
+      }
+      // Full jitter: sleep a random duration in [0, base * 2^(attempt-1)).
+      const ceiling = BACKOFF_BASE_MS * 2 ** (attempt - 1);
+      const delay = Math.random() * ceiling;
+      console.warn(
+        `[retry] Anthropic returned ${status} — attempt ${attempt}/${MAX_TRANSPORT_ATTEMPTS}, retrying in ${Math.round(delay)}ms`
+      );
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  throw lastErr;
+}
+
 export async function callAgent<T>(
   role: AgentRole,
   payload: object,
-  batchId: string = 'none'
+  batchId: string = 'none',
+  runId: string = randomUUID()
 ): Promise<T> {
   const model = MODEL_MAP[role];
   const systemPrompt = PROMPTS[role];
@@ -72,7 +109,7 @@ export async function callAgent<T>(
   let outputTokens = 0;
 
   try {
-    const response = await anthropic.messages.create({
+    const response = await callAnthropic({
       model,
       max_tokens: 4096,
       system: systemPrompt,
@@ -87,22 +124,28 @@ export async function callAgent<T>(
     throw new Error(`[${role}] Anthropic API call failed: ${(err as Error).message}`);
   }
 
-  const log: AgentLog = {
-    role,
-    model,
-    batch_id: batchId,
-    input_tokens: inputTokens,
-    output_tokens: outputTokens,
-    duration_ms: Date.now() - start,
-    timestamp: new Date().toISOString(),
+  // The log is emitted only after any JSON-parse retry has run, so the retry's
+  // token usage and latency are folded into the same row rather than discarded.
+  const emitLog = async (): Promise<void> => {
+    const log: AgentLog = {
+      run_id: runId,
+      role,
+      model,
+      batch_id: batchId,
+      input_tokens: inputTokens,
+      output_tokens: outputTokens,
+      duration_ms: Date.now() - start,
+      timestamp: new Date().toISOString(),
+    };
+    sessionLogs.push(log);
+    console.log('[agent-log]', JSON.stringify(log));
+    await insertAgentLog(log).catch(err =>
+      console.warn(`[db-warn] Failed to insert log for ${role}: ${(err as Error).message}`)
+    );
   };
-  sessionLogs.push(log);
-  console.log('[agent-log]', JSON.stringify(log));
-  await insertAgentLog(log).catch(err =>
-    console.warn(`[db-warn] Failed to insert log for ${role}: ${(err as Error).message}`)
-  );
 
   if (isSynthesiser) {
+    await emitLog();
     return raw as unknown as T;
   }
 
@@ -110,15 +153,19 @@ export async function callAgent<T>(
   const jsonStart = raw.indexOf('{');
   const jsonEnd = raw.lastIndexOf('}');
   if (jsonStart === -1 || jsonEnd === -1) {
+    await emitLog();
     throw new Error(`[${role}] Response contained no JSON object. Raw: ${raw.slice(0, 200)}`);
   }
   const cleaned = raw.slice(jsonStart, jsonEnd + 1);
 
   try {
-    return JSON.parse(cleaned) as T;
+    const parsed = JSON.parse(cleaned) as T;
+    await emitLog();
+    return parsed;
   } catch {
-    // Retry once with an explicit correction prompt
-    const retry = await anthropic.messages.create({
+    // Retry once with an explicit correction prompt. Fold the retry's token
+    // usage into the accumulators so the emitted log reflects the true cost.
+    const retry = await callAnthropic({
       model,
       max_tokens: 4096,
       system: systemPrompt,
@@ -131,13 +178,18 @@ export async function callAgent<T>(
         },
       ],
     });
+    inputTokens += retry.usage.input_tokens;
+    outputTokens += retry.usage.output_tokens;
     const retryBlock = retry.content[0];
     const retryRaw = retryBlock?.type === 'text' ? retryBlock.text : '';
     const retryStart = retryRaw.indexOf('{');
     const retryEnd = retryRaw.lastIndexOf('}');
     if (retryStart === -1) {
+      await emitLog();
       throw new Error(`[${role}] Retry also failed to produce JSON. Raw: ${retryRaw.slice(0, 200)}`);
     }
-    return JSON.parse(retryRaw.slice(retryStart, retryEnd + 1)) as T;
+    const parsed = JSON.parse(retryRaw.slice(retryStart, retryEnd + 1)) as T;
+    await emitLog();
+    return parsed;
   }
 }

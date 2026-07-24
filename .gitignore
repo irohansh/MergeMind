@@ -1,60 +1,86 @@
-# Dependencies
+# ---------------------------------------------------------------------------
+# Dependencies & build output
+# ---------------------------------------------------------------------------
 node_modules/
-
-# Build output
 dist/
 build/
 *.tsbuildinfo
-*.js.map
-*.d.ts.map
 
+# ---------------------------------------------------------------------------
 # Environment & secrets
+# Never commit real credentials. Only the .env.example template is tracked.
+# ---------------------------------------------------------------------------
 .env
 .env.*
 !.env.example
+*.local
+
+# Private keys, certificates & keystores
 *.pem
 *.key
+*.crt
+*.cert
+*.cer
+*.der
 *.p12
-secrets/
+*.pfx
+*.p7b
+*.jks
+*.keystore
+*.asc
+*.gpg
 
+# SSH / signing keys
+id_rsa*
+id_dsa*
+id_ecdsa*
+id_ed25519*
+
+# Credential & token files
+secrets/
+credentials.json
+*credentials*.json
+service-account*.json
+gha-creds-*.json
+.npmrc
+.pgpass
+.netrc
+.aws/
+.gcloud/
+
+# ---------------------------------------------------------------------------
 # Logs & runtime
+# ---------------------------------------------------------------------------
 logs/
 *.log
 npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 pids/
 *.pid
 
-# Test & coverage
+# ---------------------------------------------------------------------------
+# Test & coverage output
+# ---------------------------------------------------------------------------
 coverage/
 .nyc_output/
-*.lcov
-test-results/
 
-# Caches & temp
-.cache/
-.eslintcache
-.npm/
-tmp/
-temp/
-
+# ---------------------------------------------------------------------------
 # OS & editor
+# ---------------------------------------------------------------------------
 .DS_Store
 Thumbs.db
 desktop.ini
 .vscode/
-!.vscode/extensions.json
 .idea/
 *.swp
-*.swo
-*~
 
-# Non-npm lock files (this project uses npm + package-lock.json)
-yarn.lock
-pnpm-lock.yaml
-
-# Private notes — .claude/ (MCP wiring + slash commands) is committed
-CLAUDE.md
-.claude/settings.local.json
-docs/DEEP_DIVE.md
-docs/MergeMind_Interview_Prep.md
-architecture.md
+# ---------------------------------------------------------------------------
+# Markdown
+# Ignore all Markdown (notes, docs, scratch) except the public README and the
+# committed project config: CLAUDE.md and the .claude/ slash-command files.
+# ---------------------------------------------------------------------------
+*.md
+!README.md
+!CLAUDE.md
+!.claude/**/*.md

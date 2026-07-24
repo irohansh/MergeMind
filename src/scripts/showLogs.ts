@@ -4,7 +4,7 @@ import { getPool } from '../db/client.js';
 const db = getPool();
 
 const result = await db.query(`
-  SELECT role, model, input_tokens, output_tokens, duration_ms, timestamp
+  SELECT run_id, role, model, input_tokens, output_tokens, duration_ms, timestamp
   FROM agent_logs
   ORDER BY timestamp DESC
   LIMIT 10

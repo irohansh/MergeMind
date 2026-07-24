@@ -91,6 +91,7 @@ export interface StyleAgentOutput {
 }
 
 export interface AgentLog {
+  run_id: string;
   role: string;
   model: string;
   batch_id: string;
