@@ -77,10 +77,9 @@ desktop.ini
 
 # ---------------------------------------------------------------------------
 # Markdown
-# Ignore all Markdown (notes, docs, scratch) except the public README and the
-# committed project config: CLAUDE.md and the .claude/ slash-command files.
+# Ignore all Markdown (notes, docs, scratch — CLAUDE.md, architecture.md, etc.)
+# except the public README and the .claude/ slash-command files.
 # ---------------------------------------------------------------------------
 *.md
 !README.md
-!CLAUDE.md
 !.claude/**/*.md
