@@ -11,7 +11,20 @@ import { insertAgentLog } from '../db/client.js';
 const PRICE_PER_MTOK: Record<string, { input: number; output: number }> = {
   'claude-haiku-4-5': { input: 0.80, output: 4.00 },
   'claude-sonnet-4-6': { input: 3.00, output: 15.00 },
+  'claude-3-5-haiku-20241022': { input: 0.80, output: 4.00 },
+  'claude-3-5-sonnet-20241022': { input: 3.00, output: 15.00 },
+  'claude-3-7-sonnet-20250219': { input: 3.00, output: 15.00 },
 };
+
+function getPricing(model: string): { input: number; output: number } {
+  if (PRICE_PER_MTOK[model]) {
+    return PRICE_PER_MTOK[model];
+  }
+  if (model.toLowerCase().includes('haiku')) {
+    return { input: 0.80, output: 4.00 };
+  }
+  return { input: 3.00, output: 15.00 };
+}
 
 const sessionLogs: AgentLog[] = [];
 
@@ -24,7 +37,7 @@ export function getSessionMetrics(): {
     totalInput += log.input_tokens;
     totalOutput += log.output_tokens;
     totalDuration += log.duration_ms;
-    const pricing = PRICE_PER_MTOK[log.model] ?? { input: 3.00, output: 15.00 };
+    const pricing = getPricing(log.model);
     totalCost += (log.input_tokens / 1_000_000) * pricing.input
               + (log.output_tokens / 1_000_000) * pricing.output;
   }
@@ -46,13 +59,16 @@ const PROMPTS: Record<AgentRole, string> = {
   synthesiser: SYNTHESISER_SYSTEM_PROMPT,
 };
 
+const haikuModel = process.env.ANTHROPIC_HAIKU_MODEL || 'claude-3-5-haiku-20241022';
+const sonnetModel = process.env.ANTHROPIC_SONNET_MODEL || 'claude-3-5-sonnet-20241022';
+
 // Sonnet for deep reasoning roles, Haiku for volume roles
 const MODEL_MAP: Record<AgentRole, string> = {
-  planner: 'claude-haiku-4-5',
-  security: 'claude-sonnet-4-6',
-  logic: 'claude-haiku-4-5',
-  style: 'claude-haiku-4-5',
-  synthesiser: 'claude-sonnet-4-6',
+  planner: haikuModel,
+  security: sonnetModel,
+  logic: haikuModel,
+  style: haikuModel,
+  synthesiser: sonnetModel,
 };
 
 export async function callAgent<T>(
@@ -87,6 +103,49 @@ export async function callAgent<T>(
     throw new Error(`[${role}] Anthropic API call failed: ${(err as Error).message}`);
   }
 
+  let parsedResult: T;
+
+  if (isSynthesiser) {
+    parsedResult = raw as unknown as T;
+  } else {
+    // Strip any accidental prose before the JSON object
+    const jsonStart = raw.indexOf('{');
+    const jsonEnd = raw.lastIndexOf('}');
+    if (jsonStart === -1 || jsonEnd === -1) {
+      throw new Error(`[${role}] Response contained no JSON object. Raw: ${raw.slice(0, 200)}`);
+    }
+    const cleaned = raw.slice(jsonStart, jsonEnd + 1);
+
+    try {
+      parsedResult = JSON.parse(cleaned) as T;
+    } catch {
+      // Retry once with an explicit correction prompt
+      const retry = await anthropic.messages.create({
+        model,
+        max_tokens: 4096,
+        system: systemPrompt,
+        messages: [
+          { role: 'user', content: JSON.stringify(payload) },
+          { role: 'assistant', content: raw },
+          {
+            role: 'user',
+            content: 'Your response was not valid JSON. Return only the JSON object, no other text.',
+          },
+        ],
+      });
+      inputTokens += retry.usage.input_tokens;
+      outputTokens += retry.usage.output_tokens;
+      const retryBlock = retry.content[0];
+      const retryRaw = retryBlock?.type === 'text' ? retryBlock.text : '';
+      const retryStart = retryRaw.indexOf('{');
+      const retryEnd = retryRaw.lastIndexOf('}');
+      if (retryStart === -1) {
+        throw new Error(`[${role}] Retry also failed to produce JSON. Raw: ${retryRaw.slice(0, 200)}`);
+      }
+      parsedResult = JSON.parse(retryRaw.slice(retryStart, retryEnd + 1)) as T;
+    }
+  }
+
   const log: AgentLog = {
     role,
     model,
@@ -102,42 +161,5 @@ export async function callAgent<T>(
     console.warn(`[db-warn] Failed to insert log for ${role}: ${(err as Error).message}`)
   );
 
-  if (isSynthesiser) {
-    return raw as unknown as T;
-  }
-
-  // Strip any accidental prose before the JSON object
-  const jsonStart = raw.indexOf('{');
-  const jsonEnd = raw.lastIndexOf('}');
-  if (jsonStart === -1 || jsonEnd === -1) {
-    throw new Error(`[${role}] Response contained no JSON object. Raw: ${raw.slice(0, 200)}`);
-  }
-  const cleaned = raw.slice(jsonStart, jsonEnd + 1);
-
-  try {
-    return JSON.parse(cleaned) as T;
-  } catch {
-    // Retry once with an explicit correction prompt
-    const retry = await anthropic.messages.create({
-      model,
-      max_tokens: 4096,
-      system: systemPrompt,
-      messages: [
-        { role: 'user', content: JSON.stringify(payload) },
-        { role: 'assistant', content: raw },
-        {
-          role: 'user',
-          content: 'Your response was not valid JSON. Return only the JSON object, no other text.',
-        },
-      ],
-    });
-    const retryBlock = retry.content[0];
-    const retryRaw = retryBlock?.type === 'text' ? retryBlock.text : '';
-    const retryStart = retryRaw.indexOf('{');
-    const retryEnd = retryRaw.lastIndexOf('}');
-    if (retryStart === -1) {
-      throw new Error(`[${role}] Retry also failed to produce JSON. Raw: ${retryRaw.slice(0, 200)}`);
-    }
-    return JSON.parse(retryRaw.slice(retryStart, retryEnd + 1)) as T;
-  }
+  return parsedResult;
 }
