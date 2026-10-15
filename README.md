@@ -114,6 +114,16 @@ npm start
 
 This executes `src/index.ts`, which passes a sample diff through the complete five-agent pipeline and prints the final Markdown review to stdout.
 
+**Run in Dry-Run mode (offline, zero API cost):**
+
+```bash
+npm run start:dry-run
+# or
+npx tsx src/index.ts --dry-run
+```
+
+This simulates the full pipeline flow using realistic structured mock data, displaying full token metrics, cost estimates, and synthesised markdown output without needing an Anthropic API key.
+
 **Type-check without running:**
 
 ```bash
@@ -241,7 +251,12 @@ MergeMind has two interfaces. `npm start` runs the self-contained Node pipeline 
 
 ## Batching and Rate Limits
 
-The Planner groups files into batches of at most 8 files each. This keeps individual agent calls within Tier 1 token-per-minute limits (30k tokens/min on Sonnet) — per call. Aggregate concurrency limiting is a known TODO: all batches currently fire in parallel with no cap or 429 backoff, so a very large PR could still exceed the TPM limit. Lock files, minified assets, and auto-generated migration files are excluded from all batches.
+The Planner groups files into batches of at most 8 files each. This keeps individual agent calls within Tier 1 token-per-minute limits (30k tokens/min on Sonnet) — per call.
+
+Concurrency is controlled by:
+- **Bounded Batch Concurrency:** The orchestrator throttles parallel batch execution to a maximum of 3 concurrent requests at a time.
+- **Rate Limit & Transient Retry:** `callAgent` implements automatic exponential backoff retry for HTTP 429 and 529 responses (up to 3 retries).
+- **Exclusion Rules:** Lock files, minified assets, and auto-generated migration files are excluded from all batches.
 
 ---
 

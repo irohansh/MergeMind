@@ -125,13 +125,39 @@ export async function callAgent<T>(
     return mockResult;
   }
 
-  let raw: string;
+async function createMessageWithBackoff(
+  client: Anthropic,
+  params: Anthropic.MessageCreateParamsNonStreaming,
+  maxRetries: number = 3
+): Promise<Anthropic.Message> {
+  let attempt = 0;
+  while (true) {
+    try {
+      return await client.messages.create(params);
+    } catch (err: unknown) {
+      attempt++;
+      const status = (err as { status?: number })?.status;
+      const isRateOrTransient = status === 429 || status === 529 || (status !== undefined && status >= 500);
+      if (isRateOrTransient && attempt <= maxRetries) {
+        const delayMs = Math.min(1000 * Math.pow(2, attempt) + Math.random() * 500, 10000);
+        console.warn(
+          `[rate-limit] Received status ${status}. Retrying in ${Math.round(delayMs)}ms (attempt ${attempt}/${maxRetries})...`
+        );
+        await new Promise(resolve => setTimeout(resolve, delayMs));
+        continue;
+      }
+      throw err;
+    }
+  }
+}
+
+let raw: string;
   let inputTokens = 0;
   let outputTokens = 0;
 
   try {
     const client = getAnthropicClient();
-    const response = await client.messages.create({
+    const response = await createMessageWithBackoff(client, {
       model,
       max_tokens: 4096,
       system: systemPrompt,
@@ -164,7 +190,7 @@ export async function callAgent<T>(
     } catch {
       // Retry once with an explicit correction prompt
       const client = getAnthropicClient();
-      const retry = await client.messages.create({
+      const retry = await createMessageWithBackoff(client, {
         model,
         max_tokens: 4096,
         system: systemPrompt,
