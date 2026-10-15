@@ -6,6 +6,11 @@ import { STYLE_SYSTEM_PROMPT } from '../prompts/style.js';
 import { SYNTHESISER_SYSTEM_PROMPT } from '../prompts/synthesiser.js';
 import type { AgentLog } from '../types/agents.js';
 import { insertAgentLog } from '../db/client.js';
+import { getMockAgentResponse } from './mockAgentData.js';
+
+export function isDryRun(): boolean {
+  return process.env.DRY_RUN === 'true' || process.env.DRY_RUN === '1';
+}
 
 // Pricing per million tokens (MTok) as of 2026-07
 const PRICE_PER_MTOK: Record<string, { input: number; output: number }> = {
@@ -47,7 +52,19 @@ export function getSessionMetrics(): {
   };
 }
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+let anthropicClient: Anthropic | null = null;
+function getAnthropicClient(): Anthropic {
+  if (!anthropicClient) {
+    const apiKey = process.env.ANTHROPIC_API_KEY;
+    if (!apiKey) {
+      throw new Error(
+        'ANTHROPIC_API_KEY is not set. Set it in .env or run with DRY_RUN=true / --dry-run for offline testing.'
+      );
+    }
+    anthropicClient = new Anthropic({ apiKey });
+  }
+  return anthropicClient;
+}
 
 type AgentRole = 'planner' | 'security' | 'logic' | 'style' | 'synthesiser';
 
@@ -83,12 +100,38 @@ export async function callAgent<T>(
   // Synthesiser returns Markdown, all others return JSON
   const isSynthesiser = role === 'synthesiser';
 
+  // Handle DRY_RUN mode for offline verification and zero API cost
+  if (isDryRun()) {
+    const mockResult = getMockAgentResponse<T>(role, batchId);
+    const simulatedLatency = Math.floor(Math.random() * 30) + 20; // 20-50ms
+    const mockInputTokens = isSynthesiser ? 1200 : 650;
+    const mockOutputTokens = isSynthesiser ? 720 : 360;
+
+    const log: AgentLog = {
+      role,
+      model,
+      batch_id: batchId,
+      input_tokens: mockInputTokens,
+      output_tokens: mockOutputTokens,
+      duration_ms: simulatedLatency,
+      timestamp: new Date().toISOString(),
+    };
+    sessionLogs.push(log);
+    console.log('[agent-log] [dry-run]', JSON.stringify(log));
+    await insertAgentLog(log).catch(err =>
+      console.warn(`[db-warn] Failed to insert log for ${role}: ${(err as Error).message}`)
+    );
+
+    return mockResult;
+  }
+
   let raw: string;
   let inputTokens = 0;
   let outputTokens = 0;
 
   try {
-    const response = await anthropic.messages.create({
+    const client = getAnthropicClient();
+    const response = await client.messages.create({
       model,
       max_tokens: 4096,
       system: systemPrompt,
@@ -120,7 +163,8 @@ export async function callAgent<T>(
       parsedResult = JSON.parse(cleaned) as T;
     } catch {
       // Retry once with an explicit correction prompt
-      const retry = await anthropic.messages.create({
+      const client = getAnthropicClient();
+      const retry = await client.messages.create({
         model,
         max_tokens: 4096,
         system: systemPrompt,

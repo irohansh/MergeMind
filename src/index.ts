@@ -34,6 +34,15 @@ const prContext = {
   base_branch: 'main',
 };
 
+if (process.argv.includes('--dry-run')) {
+  process.env.DRY_RUN = 'true';
+}
+
+const isDryRun = process.env.DRY_RUN === 'true' || process.env.DRY_RUN === '1';
+if (isDryRun) {
+  console.log('Running in DRY_RUN mode (offline, zero API cost)\n');
+}
+
 console.log('Running PR review pipeline...\n');
 const pipelineStart = Date.now();
 

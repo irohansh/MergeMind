@@ -14,11 +14,16 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 type AgentName = 'planner' | 'security' | 'logic' | 'style' | 'synthesiser';
 
-const agent = process.argv[2] as AgentName | undefined;
+if (process.argv.includes('--dry-run')) {
+  process.env.DRY_RUN = 'true';
+}
+
+const nonFlagArgs = process.argv.slice(2).filter(arg => !arg.startsWith('--'));
+const agent = nonFlagArgs[0] as AgentName | undefined;
 const validAgents: AgentName[] = ['planner', 'security', 'logic', 'style', 'synthesiser'];
 
 if (!agent || !validAgents.includes(agent)) {
-  console.error(`Usage: npx tsx src/tests/testAgent.ts <agent>\nAgents: ${validAgents.join(', ')}`);
+  console.error(`Usage: npx tsx src/tests/testAgent.ts <agent> [--dry-run]\nAgents: ${validAgents.join(', ')}`);
   process.exit(1);
 }
 

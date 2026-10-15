@@ -6,6 +6,7 @@
   "main": "dist/orchestrator.js",
   "scripts": {
     "start": "npx tsx src/index.ts",
+    "start:dry-run": "npx tsx src/index.ts --dry-run",
     "test:agent": "npx tsx src/tests/testAgent.ts",
     "test:planner": "npx tsx src/tests/testAgent.ts planner",
     "test:security": "npx tsx src/tests/testAgent.ts security",
