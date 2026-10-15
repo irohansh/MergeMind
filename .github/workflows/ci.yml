@@ -1,0 +1,39 @@
+name: MergeMind CI
+
+on:
+  push:
+    branches: [main, feat/*]
+  pull_request:
+    branches: [main]
+
+jobs:
+  validate:
+    name: Typecheck & Test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run TypeScript Typecheck
+        run: npm run typecheck
+
+      - name: Run Vitest Automated Test Suite
+        run: npm test
+
+      - name: Verify Health Server Starts
+        run: |
+          npx tsx src/observability/healthServer.ts &
+          SERVER_PID=$!
+          sleep 3
+          curl --fail http://localhost:3000/health || exit 1
+          kill $SERVER_PID
